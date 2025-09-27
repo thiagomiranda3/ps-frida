@@ -68,14 +68,29 @@ Interceptor.replace(recvfromPtr, new NativeCallback((socket, buffer, length, fla
 
     console.log(`[Agent] Replaying frame ${REPLAY_INDEX + 1}/${MACRO_FRAMES.length}: data_len=${frame.data.byteLength}, addr_len=${frame.addr_len}`);
 
-    buffer.writeByteArray(frame.data);
-    address.writeByteArray(frame.addr);
-    address_len_ptr.writeU32(frame.addr_len);
+    // 1. Get the max capacity for BOTH buffers from the application.
+    const appDataCapacity = length;
+    const appAddrCapacity = address_len_ptr.readU32(); // Read the capacity for the address buffer.
+
+    // 2. Determine how many bytes we can safely write to EACH buffer.
+    const bytesToWrite = Math.min(frame.data.byteLength, appDataCapacity);
+    const addrBytesToWrite = Math.min(frame.addr.byteLength, appAddrCapacity);
+
+    // 3. Slice our recorded data to ensure we don't overflow either buffer.
+    const dataChunk = frame.data.slice(0, bytesToWrite);
+    const addrChunk = frame.addr.slice(0, addrBytesToWrite);
+
+    // 4. Write the safe chunks of data into the application's memory.
+    buffer.writeByteArray(dataChunk);
+    //address.writeByteArray(addrChunk);
+
+    // 5. CRITICAL: Write the length of the address we ACTUALLY wrote.
+    //address_len_ptr.writeU32(addrBytesToWrite);
 
     REPLAY_INDEX = (REPLAY_INDEX + 1) % MACRO_FRAMES.length;
 
     // Return the length of the main data buffer, just like the real function would
-    return frame.data.byteLength;
+    return bytesToWrite;
   } catch (error) {
     console.error("[Agent] Error setting up replay hook:", error.stack);
     return 0;
