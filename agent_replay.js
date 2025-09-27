@@ -4,11 +4,29 @@ let FRAMES_SIZE = 0;
 let REPLAY_INDEX = 0;
 
 // This function handles messages FROM the Python controller
-recv(message => {
+recv((message, data) => {
   if (message.type === 'load_macro') {
-    MACRO_FRAMES = message.payload;
+    console.log(`[Agent] Received macro data blob of size ${data.byteLength}. Parsing frames...`);
+    
+    // This is the raw ArrayBuffer of all combined packets
+    const all_frames_buffer = data;
+    
+    let offset = 0;
+    // Loop through the buffer, reading the 4-byte length prefix for each frame
+    while (offset < all_frames_buffer.byteLength) {
+        // Read the length (as a 32-bit unsigned integer)
+        const frameLength = new DataView(all_frames_buffer, offset, 4).getUint32(0, true);
+        offset += 4;
+        
+        // Slice out the frame data
+        const frame = all_frames_buffer.slice(offset, offset + frameLength);
+        MACRO_FRAMES.push(frame);
+        
+        offset += frameLength;
+    }
+    
     FRAMES_SIZE = MACRO_FRAMES.length;
-    console.log(`[Agent] Loaded ${MACRO_FRAMES.length} frames for replay.`);
+    console.log(`[Agent] Parsed ${FRAMES_SIZE} frames for replay.`);
   }
 });
 
@@ -29,8 +47,9 @@ try {
   // Use Interceptor.replace to completely control the function
   Interceptor.replace(recvfromPtr, new NativeCallback((socket, buffer, length, flags, addr, addrlen) => {
     if (FRAMES_SIZE === 0) {
-      console.log("[Agent] Replay mode active, but no frames to play. Returning 0.");
-      return 0; // Tell the app no data was received
+      console.log("[Agent] Replay mode active, but no frames to play yet. Returning original.");
+      const bytesRead = originalRecvfrom(socket, buffer, length, flags, addr, addrlen);
+      return bytesRead;
     }
 
     // 1. Get the next frame from our recorded macro

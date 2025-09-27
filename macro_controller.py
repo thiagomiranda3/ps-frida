@@ -121,7 +121,7 @@ def main():
             print("No macro data to replay. Exiting.")
             session.detach()
             return
-        script.post({'type': 'load_macro', 'payload': macro_data})
+        script.post({'type': 'load_macro'}, b"".join(macro_data))
 
     # --- 5. Resume if we spawned the process ---
     if pid_to_resume:
