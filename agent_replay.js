@@ -1,70 +1,83 @@
-let MODE = 'replay';
 let MACRO_FRAMES = [];
-let FRAMES_SIZE = 0;
 let REPLAY_INDEX = 0;
 
-// This function handles messages FROM the Python controller
+// The recv function now accepts a second argument, 'data', for the binary payload.
 recv((message, data) => {
-  if (message.type === 'load_macro') {
-    console.log(`[Agent] Received macro data blob of size ${data.byteLength}. Parsing frames...`);
-    
-    // This is the raw ArrayBuffer of all combined packets
-    const all_frames_buffer = data;
-    
-    let offset = 0;
-    // Loop through the buffer, reading the 4-byte length prefix for each frame
-    while (offset < all_frames_buffer.byteLength) {
-        // Read the length (as a 32-bit unsigned integer)
-        const frameLength = new DataView(all_frames_buffer, offset, 4).getUint32(0, true);
+  try {
+    if (message.type === 'load_macro') {
+      console.log(`[Agent] Received macro data blob of size ${data.byteLength}. Parsing frames...`);
+      const all_frames_buffer = data;
+      let offset = 0;
+
+      let recordedFrames = [];
+      // Loop through the raw binary blob from Python
+      while (offset < all_frames_buffer.byteLength) {
+        // Read the 4-byte length prefix for the entire recorded frame
+        const totalFrameLength = new DataView(all_frames_buffer, offset, 4).getUint32(0, true);
         offset += 4;
-        
-        // Slice out the frame data
-        const frame = all_frames_buffer.slice(offset, offset + frameLength);
-        MACRO_FRAMES.push(frame);
-        
-        offset += frameLength;
+
+        // Slice out the full frame data (which contains our bundled packets)
+        const frame_buffer = all_frames_buffer.slice(offset, offset + totalFrameLength);
+
+        // Now, parse the bundled data from within the frame
+        const data_len = new DataView(frame_buffer, 0, 4).getUint32(0, true);
+        const data_buf = frame_buffer.slice(4, 4 + data_len);
+
+        const addr_len = new DataView(frame_buffer, 4 + data_len, 4).getUint32(0, true);
+        const addr_buf = frame_buffer.slice(4 + data_len + 4, 4 + data_len + 4 + addr_len);
+
+        // Store the parsed data as an object in our array
+        recordedFrames.push({
+          data: data_buf,
+          addr: addr_buf,
+          addr_len: addr_len
+        });
+
+        offset += totalFrameLength;
+      }
+
+      MACRO_FRAMES = recordedFrames;
+
+      console.log(`[Agent] Parsed ${MACRO_FRAMES.length} frames for replay.`);
     }
-    
-    FRAMES_SIZE = MACRO_FRAMES.length;
-    console.log(`[Agent] Parsed ${FRAMES_SIZE} frames for replay.`);
+  } catch (error) {
+    console.error("[Agent] Error reading the macro file:", error.stack);
+    return 0;
   }
 });
 
-console.log(`[Agent] Mode set to: ${MODE}`);
+const recvfromPtr = Module.findGlobalExportByName('recvfrom');
+if (!recvfromPtr) throw new Error("'recvfrom' could not be found.");
 
-try {
-  // Find the address of the function we want to hook
-  const recvfromPtr = Module.findGlobalExportByName('recvfrom');
+console.log(`[Agent] Hooking recvfrom at address: ${recvfromPtr}`);
 
-  console.log(`[Agent] Hooking recvfrom at address: ${recvfromPtr}`);
+// Create a NativeFunction object for the original recvfrom.
+const originalRecvfrom = new NativeFunction(recvfromPtr,
+  'ssize_t', ['int', 'pointer', 'size_t', 'int', 'pointer', 'pointer']
+);
 
-  // Create a NativeFunction object for the original recvfrom.
-  // This is needed in record mode to call the real function.
-  const originalRecvfrom = new NativeFunction(recvfromPtr,
-    'ssize_t', ['int', 'pointer', 'size_t', 'int', 'pointer', 'pointer']
-  );
-
-  // Use Interceptor.replace to completely control the function
-  Interceptor.replace(recvfromPtr, new NativeCallback((socket, buffer, length, flags, addr, addrlen) => {
-    if (FRAMES_SIZE === 0) {
-      console.log("[Agent] Replay mode active, but no frames to play yet. Returning original.");
-      const bytesRead = originalRecvfrom(socket, buffer, length, flags, addr, addrlen);
+Interceptor.replace(recvfromPtr, new NativeCallback((socket, buffer, length, flags, address, address_len_ptr) => {
+  try {
+    if (MACRO_FRAMES.length === 0) {
+      //console.log("[Agent] Replay mode active, but no frames to play yet. Returning original.");
+      const bytesRead = originalRecvfrom(socket, buffer, length, flags, address, address_len_ptr);
       return bytesRead;
     }
 
-    // 1. Get the next frame from our recorded macro
-    const frameData = MACRO_FRAMES[REPLAY_INDEX];
-    const frameLength = frameData.byteLength;
+    const frame = MACRO_FRAMES[REPLAY_INDEX];
 
-    // 2. Write our fake data into the application's buffer
-    buffer.writeByteArray(frameData);
+    console.log(`[Agent] Replaying frame ${REPLAY_INDEX + 1}/${MACRO_FRAMES.length}: data_len=${frame.data.byteLength}, addr_len=${frame.addr_len}`);
 
-    // 3. Advance the index, looping back to the start when finished
-    REPLAY_INDEX = (REPLAY_INDEX + 1) % FRAMES_SIZE;
+    buffer.writeByteArray(frame.data);
+    address.writeByteArray(frame.addr);
+    address_len_ptr.writeU32(frame.addr_len);
 
-    // 4. Return the length of our fake frame, tricking the application
-    return frameLength;
-  }, 'ssize_t', ['int', 'pointer', 'size_t', 'int', 'pointer', 'pointer']));
-} catch (error) {
-  console.error(`[Agent] Error setting up hooks: ${error}`);
-}
+    REPLAY_INDEX = (REPLAY_INDEX + 1) % MACRO_FRAMES.length;
+
+    // Return the length of the main data buffer, just like the real function would
+    return frame.data.byteLength;
+  } catch (error) {
+    console.error("[Agent] Error setting up replay hook:", error.stack);
+    return 0;
+  }
+}, 'ssize_t', ['int', 'pointer', 'size_t', 'int', 'pointer', 'pointer']));

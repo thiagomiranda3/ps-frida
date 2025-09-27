@@ -121,7 +121,9 @@ def main():
             print("No macro data to replay. Exiting.")
             session.detach()
             return
-        script.post({'type': 'load_macro'}, b"".join(macro_data))
+        print("[*] Packing and sending macro data to agent...")
+        blob_to_send = b"".join([struct.pack('I', len(p)) + p for p in macro_data])
+        script.post({'type': 'load_macro'}, blob_to_send)
 
     # --- 5. Resume if we spawned the process ---
     if pid_to_resume:
