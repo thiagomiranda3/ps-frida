@@ -67,10 +67,13 @@ def main():
 
         if action == 'record_data':
             output_file = args.output
-            print(f"[RECORDER] Saving {len(data)} bytes to {output_file}")
             with open(output_file, "ab") as f:
                 f.write(struct.pack('I', len(data)))
                 f.write(data)
+
+    def on_agent_log(level, text):
+        """This function will be called every time the agent uses console.log"""
+        print(f"[{level.upper()}] {text}")
 
     print(f"--- Starting in {args.mode.upper()} mode ---")
 
@@ -107,6 +110,8 @@ def main():
         script_code = f.read()
     
     script = session.create_script(script_code)
+    
+    script.set_log_handler(on_agent_log)
     script.on('message', on_message)
     script.load()
 
