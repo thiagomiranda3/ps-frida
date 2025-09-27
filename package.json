@@ -1,51 +1,5 @@
 {
-	"name": ".",
-	"version": "0.0.0",
-	"description": "A app to hook into PS Remote and save and execute macros",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com//..git"
-	},
-	"license": "MIT",
-	"author": {
-		"email": "marine.rlivielor@gmail.com"
-	},
-	"type": "module",
-	"main": "built/index.js",
-	"files": [
-		"LICENSE.md",
-		"built/",
-		"package.json"
-	],
-	"scripts": {
-		"build": "tsdown",
-		"format": "prettier .",
-		"lint": "eslint . --max-warnings 0",
-		"tsc": "tsc"
-	},
-	"lint-staged": {
-		"*": "prettier --ignore-unknown --write"
-	},
-	"devDependencies": {
-		"@eslint/js": "9.29.0",
-		"@types/node": "24.0.4",
-		"eslint": "9.29.0",
-		"lint-staged": "16.1.2",
-		"prettier": "3.6.1",
-		"tsdown": "0.12.7",
-		"typescript": "^5.9.2",
-		"typescript-eslint": "8.35.0"
-	},
-	"packageManager": "pnpm@10.4.0",
-	"engines": {
-		"node": ">=20.19.0"
-	},
-	"dependencies": {
-		"frida": "^17.3.2"
-	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"frida"
-		]
-	}
+  "dependencies": {
+    "frida": "^17.3.2"
+  }
 }
