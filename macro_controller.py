@@ -7,21 +7,13 @@ import argparse
 APP_PATH = "/Applications/RemotePlay.app/Contents/MacOS/RemotePlay"
 
 def load_recording(filename):
-    """Reads the recording file and parses it into a list of data packets."""
     packets = []
     try:
-        with open(filename, "rb") as f:
-            while True:
-                length_bytes = f.read(4)
-                if not length_bytes:
-                    break
-                length = struct.unpack('I', length_bytes)[0]
-                
-                packet_data = f.read(length)
-                if len(packet_data) < length:
-                    break
-                packets.append(packet_data)
-        print(f"[REPLAYER] Loaded {len(packets)} packets from {filename}")
+        # Open the file in text read mode ('r').
+        with open(filename, "r") as f:
+            for line in f:
+                packets.append(line.strip())
+        print(f"[REPLAYER] Loaded {len(packets)} frames from {filename}")
         return packets
     except FileNotFoundError:
         print(f"[REPLAYER] Error: Recording file '{filename}' not found.")
@@ -59,17 +51,16 @@ def main():
 
     # --- 2. Define the message handler ---
     def on_message(message, data):
-        if message.get('type') != 'send':
-            return
-
-        payload = message.get('payload', {})
-        action = payload.get('action')
-
-        if action == 'record_data':
+        if message.get('type') == 'send' and message.get('payload', {}).get('action') == 'record_data':
+            # The 'data' variable is a 'bytes' object. '.hex()' converts it to a hex string.
+            hex_string = data.hex()
+            
             output_file = args.output
-            with open(output_file, "ab") as f:
-                f.write(struct.pack('I', len(data)))
-                f.write(data)
+            print(f"[RECORDER] Saving packet of {len(data)} bytes as hex string.")
+            
+            # Open the file in text append mode ('a') and write the string plus a newline.
+            with open(output_file, "a") as f:
+                f.write(hex_string + '\n')
 
     def on_agent_log(level, text):
         """This function will be called every time the agent uses console.log"""
@@ -122,8 +113,7 @@ def main():
             session.detach()
             return
         print("[*] Packing and sending macro data to agent...")
-        blob_to_send = b"".join([struct.pack('I', len(p)) + p for p in macro_data])
-        script.post({'type': 'load_macro'}, blob_to_send)
+        script.post({'type': 'load_macro', 'payload': macro_data})
 
     # --- 5. Resume if we spawned the process ---
     if pid_to_resume:
